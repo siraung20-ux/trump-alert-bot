@@ -1,120 +1,77 @@
 import os
 import requests
 import time
-import traceback
 
-# ================== CONFIG ==================
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHANNEL_ID")
 X_BEARER_TOKEN = os.environ.get("X_BEARER_TOKEN")
 
 LAST_POST_FILE = "last_post_id.txt"
 
-# Trump Truth Social
-TRUMP_ACCOUNT_ID = "107780257626128497"
-TRUTH_API_URL = f"https://truthsocial.com/api/v1/accounts/{TRUMP_ACCOUNT_ID}/statuses"
+def get_last_id():
+    if os.path.exists(LAST_POST_FILE):
+        with open(LAST_POST_FILE) as f:
+            return f.read().strip()
+    return "0"
 
-# Elon Musk
-ELON_USER_ID = "44196397"
+def save_last_id(pid):
+    with open(LAST_POST_FILE, "w") as f:
+        f.write(str(pid))
 
-# ===========================================
-
-def get_last_post_id():
-    try:
-        if os.path.exists(LAST_POST_FILE):
-            with open(LAST_POST_FILE, "r") as f:
-                return f.read().strip()
-    except:
-        pass
-    return None
-
-def set_last_post_id(post_id):
-    try:
-        with open(LAST_POST_FILE, "w") as f:
-            f.write(str(post_id))
-    except Exception as e:
-        print(f"Error saving last_post_id: {e}")
-
-def send_telegram_message(message):
+def send_msg(text):
     if not TELEGRAM_TOKEN or not CHAT_ID:
-        print("Telegram config missing!")
+        print("Telegram token missing")
         return
-    
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": message,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": False
-    }
+    data = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}
     try:
-        r = requests.post(url, json=payload, timeout=10)
-        r.raise_for_status()
-        print("✅ Telegram sent successfully")
-    except Exception as e:
-        print(f"❌ Telegram error: {e}")
+        requests.post(url, json=data, timeout=10)
+        print("Sent to Telegram")
+    except:
+        print("Telegram send failed")
 
-# ===================== TRUMP =====================
-def check_trump_posts():
-    print("🔍 Checking Trump posts...")
-    headers = {"User-Agent": "Mozilla/5.0"}
-    params = {"limit": 5}
+# === TRUMP ===
+print("Checking Trump...")
+try:
+    url = "https://truthsocial.com/api/v1/accounts/107780257626128497/statuses?limit=3"
+    r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+    posts = r.json()
+    
+    last = get_last_id()
+    for p in posts[:2]:   # နှစ်ခုပဲ စစ်မယ်
+        if str(p["id"]) != last:
+            content = p.get("content", "").replace("<p>", "").replace("</p>", "").replace("<br>", "\n")
+            msg = f"""🇺🇸 <b>Donald J. Trump</b>\n\n{content}\n\n🔗 https://truthsocial.com/@realDonaldTrump/posts/{p["id"]}\n\n──────────────────\n🇲🇲 <b>ဒေါ်နယ်ဒ် ထရမ့်</b>\n\n{content}"""
+            send_msg(msg)
+            save_last_id(p["id"])
+            break
+except Exception as e:
+    print("Trump Error:", e)
 
+# === ELON ===
+print("Checking Elon...")
+if X_BEARER_TOKEN:
     try:
-        resp = requests.get(TRUTH_API_URL, headers=headers, params=params, timeout=15)
-        resp.raise_for_status()
-        posts = resp.json()
-
-        last_id = get_last_post_id()
-        print(f"Last known Trump ID: {last_id}")
-
-        new_posts = []
-        for post in posts:
-            post_id = str(post.get("id"))
-            if post_id and post_id != last_id:
-                new_posts.append(post)
-            else:
-                break  # Stop when we hit the last known post
-
-        if new_posts:
-            print(f"Found {len(new_posts)} new Trump post(s)")
-            for post in reversed(new_posts):
-                content = post.get("content", "").replace("<p>", "").replace("</p>", "").replace("<br>", "\n\n").strip()
-                
-                message = f"""
-🇺🇸 <b>Donald J. Trump</b>
-
-{content}
-
-🔗 https://truthsocial.com/@realDonaldTrump/posts/{post['id']}
-
-──────────────────
-🇲🇲 <b>ဒေါ်နယ်ဒ် ထရမ့်</b>
-
-{content}
-                """.strip()
-
-                send_telegram_message(message)
-                time.sleep(2)
-
-            set_last_post_id(new_posts[0]["id"])
-        else:
-            print("No new Trump posts.")
-
+        url = "https://api.twitter.com/2/users/44196397/tweets?max_results=3"
+        headers = {"Authorization": f"Bearer {X_BEARER_TOKEN}"}
+        r = requests.get(url, headers=headers, timeout=15)
+        data = r.json()
+        posts = data.get("data", [])
+        
+        last = get_last_id()
+        for p in posts:
+            if str(p["id"]) != last:
+                text = p["text"].replace("\n", "\n\n")
+                msg = f"""🚀 <b>Elon Musk</b>\n\n{text}\n\n🔗 https://x.com/elonmusk/status/{p["id"]}\n\n──────────────────\n🇲🇲 <b>အီလွန် မတ်စ်</b>\n\n{text}"""
+                send_msg(msg)
+                save_last_id(p["id"])
+                break
     except Exception as e:
-        print(f"❌ Truth Social Error: {e}")
-        traceback.print_exc()
+        print("Elon Error:", e)
+else:
+    print("No X Bearer Token")
 
-# ===================== ELON =====================
-def check_elon_posts():
-    if not X_BEARER_TOKEN:
-        print("❌ X_BEARER_TOKEN not found in environment")
-        return
-
-    print("🔍 Checking Elon Musk posts...")
-    url = f"https://api.twitter.com/2/users/{ELON_USER_ID}/tweets"
-    headers = {"Authorization": f"Bearer {X_BEARER_TOKEN}"}
-    params = {"max_results": 5, "tweet.fields": "created_at"}
+print("Bot finished")    params = {"max_results": 5, "tweet.fields": "created_at"}
 
     try:
         resp = requests.get(url, headers=headers, params=params, timeout=15)
