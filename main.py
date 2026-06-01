@@ -65,6 +65,11 @@ def send_telegram(message):
 
 feed = feedparser.parse(RSS_URL)
 
+print("TOTAL POSTS:", len(feed.entries))
+
+for i in range(min(5, len(feed.entries))):
+    print(i, feed.entries[i].link)
+
 if not feed.entries:
     raise Exception("RSS Feed Empty")
 
