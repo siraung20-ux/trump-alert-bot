@@ -1,0 +1,20 @@
+name: Test Telegram
+
+on:
+  workflow_dispatch:
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Requests
+        run: pip install requests
+
+      - name: Run Bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+        run: python test.py
