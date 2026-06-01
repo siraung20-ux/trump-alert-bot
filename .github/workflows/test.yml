@@ -1,20 +1,28 @@
-name: Test Telegram
+name: Trump Alert Bot
 
 on:
+  schedule:
+    - cron: '*/15 * * * *' # ၁၅ မိနစ်တစ်ခါ အလိုအလျောက် စစ်ဆေးပေးမည်
   workflow_dispatch:
 
 jobs:
-  send:
+  check_trump_posts:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Install Requests
-        run: pip install requests
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
 
-      - name: Run Bot
+      - name: Install dependencies
+        run: pip install feedparser requests
+
+      - name: Run bot script
         env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
         run: python test.py
+        
