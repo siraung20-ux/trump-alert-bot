@@ -8,23 +8,15 @@ on:
 jobs:
   check_posts:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          # cache: 'pip'   ← ဒါကို ခွဲထုတ်ထားပါတယ် (error ရှောင်ဖို့)
 
-      - name: Install dependencies
-        run: pip install requests
+      - run: pip install requests
 
       - name: Run Bot
         env:
@@ -33,14 +25,10 @@ jobs:
           X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
         run: python bot.py
 
-      - name: Commit last_post_id.txt
+      - name: Save last post ID
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "GitHub Actions"
+          git config user.name "GitHub Actions"
+          git config user.email "action@github.com"
           git add last_post_id.txt
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "Update last post ID [skip ci]"
-            git push
-          fi
+          git commit -m "Update last post ID" || echo "No change"
+          git push || echo "Push failed"
