@@ -12,7 +12,8 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -20,7 +21,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
+          # cache: 'pip'   ← ဒါကို ခွဲထုတ်ထားပါတယ် (error ရှောင်ဖို့)
 
       - name: Install dependencies
         run: pip install requests
