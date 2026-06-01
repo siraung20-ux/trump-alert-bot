@@ -1,46 +1,35 @@
 name: Trump RSS Bot
 
 on:
-workflow_dispatch:
-schedule:
-- cron: '*/5 * * * *'
+  workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
 
 permissions:
-contents: write
+  contents: write
 
 jobs:
-run:
-runs-on: ubuntu-latest
+  run:
+    runs-on: ubuntu-latest
 
-steps:
-  - name: Checkout
-    uses: actions/checkout@v4
+    steps:
+      - uses: actions/checkout@v4
 
-  - name: Setup Python
-    uses: actions/setup-python@v5
-    with:
-      python-version: '3.11'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-  - name: Install Packages
-    run: |
-      pip install -r requirements.txt
+      - run: pip install -r requirements.txt
 
-  - name: Run Bot
-    env:
-      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-      CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-    run: |
-      python main.py
+      - env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python main.py
 
-  - name: Commit Last Post ID
-    run: |
-      git config user.name "github-actions"
-      git config user.email "github-actions@github.com"
-
-      git add last_post.txt
-
-      if ! git diff --cached --quiet; then
-        git commit -m "update last post id"
-        git push
-      fi
+      - run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add last_post.txt
+          git diff --cached --quiet || git commit -m "update last post id"
+          git push
