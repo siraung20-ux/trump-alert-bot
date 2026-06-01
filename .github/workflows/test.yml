@@ -1,29 +1,30 @@
-name: Trump Live Bot
-
+name: Social Media Bot
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: '*/5 * * * *'
   workflow_dispatch:
-
 jobs:
-  run:
+  run-bot:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-
-      - name: Install deps
-        run: pip install requests openai
-
-      - name: Run bot
+          python-version: '3.10'
+      - run: pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: last-post-ids
+          fail-on-unmatched-files: false
+      - name: Run Bot
         env:
-          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          TELEGRAM_CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
         run: python main.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: last-post-ids
+          path: last_post_ids.json
+          
