@@ -1,15 +1,15 @@
 import os
 import feedparser
 import requests
-from openai import OpenAI
+from google import genai
 
 RSS_URL = "https://trumpstruth.org/feed"
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHANNEL_ID = os.environ["CHANNEL_ID"]
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 LAST_FILE = "last_post.txt"
 
@@ -28,32 +28,27 @@ def save_last_id(post_id):
 
 def translate_burmese(text):
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": """
-You are a professional Burmese translator.
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=f"""
+Translate this social media post into natural Burmese.
 
 Rules:
-- Translate naturally into Burmese.
+- Return Burmese only.
+- Do not explain.
+- Do not summarize.
 - Keep names unchanged.
-- Keep political meaning unchanged.
-- Return Burmese translation only.
+- Preserve original meaning and tone.
+
+Post:
+{text}
 """
-                },
-                {
-                    "role": "user",
-                    "content": text
-                }
-            ]
         )
 
-        return response.choices[0].message.content.strip()
+        return response.text.strip()
 
     except Exception as e:
-        print(e)
+        print("Gemini Error:", e)
         return "ဘာသာပြန်မရပါ။"
 
 
@@ -62,7 +57,8 @@ def send_telegram(message):
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
         json={
             "chat_id": CHANNEL_ID,
-            "text": message
+            "text": message,
+            "disable_web_page_preview": True
         }
     )
 
@@ -89,7 +85,7 @@ if post_id != last_id:
 🇺🇸 English:
 {text}
 
-🇲🇲 မြန်မာ:
+🇲🇲 Burmese:
 {mm}
 
 🔗 Source:
