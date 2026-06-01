@@ -1,13 +1,15 @@
-name: API Connection Test
+name: Trump Tracker Bot Auto-Run
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *' # ၅ မိနစ်တစ်ကြိမ် run မည်
+  workflow_dispatch: # Manual run လို့ရအောင်
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # ID သိမ်းဖို့အတွက် repository ကို write permission ပေးခြင်း
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -18,13 +20,21 @@ jobs:
           python-version: '3.9'
 
       - name: Install dependencies
-        run: |
-          pip install tweepy pyTelegramBotAPI openai
+        run: pip install tweepy pyTelegramBotAPI openai
 
-      - name: Run connection test
+      - name: Run Bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
           X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: python test.py
-        
+        run: python trump_tracker_bot.py
+
+      - name: Commit and push last_id.txt
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add last_id.txt || true
+          git commit -m "Update last_id.txt" || true
+          git push || true
+          
