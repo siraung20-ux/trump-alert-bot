@@ -80,14 +80,25 @@ text = latest.title
 link = latest.link
 
 last_id = get_last_id()
-print("Latest RSS ID:", post_id)
-print("Last Saved ID:", last_id)
-print("Latest Title:", text)
-if post_id != last_id:
 
-    mm = translate_burmese(text)
+new_posts = []
 
-    message = f"""🚨 TRUMP TRUTH UPDATE
+for entry in reversed(feed.entries):
+    if entry.link > last_id:
+        new_posts.append(entry)
+
+if not new_posts:
+    print("No New Post")
+else:
+    for entry in new_posts:
+
+        post_id = entry.link
+        text = entry.title
+        link = entry.link
+
+        mm = translate_burmese(text)
+
+        message = f"""🚨 TRUMP TRUTH UPDATE
 
 🇺🇸 English:
 {text}
@@ -99,11 +110,8 @@ if post_id != last_id:
 {link}
 """
 
-    send_telegram(message)
+        send_telegram(message)
 
-    save_last_id(post_id)
+        print("Sent:", post_id)
 
-    print("New Post Sent")
-
-else:
-    print("No New Post")
+    save_last_id(feed.entries[0].link)
