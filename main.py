@@ -75,7 +75,9 @@ text = latest.title
 link = latest.link
 
 last_id = get_last_id()
-
+print("Latest RSS ID:", post_id)
+print("Last Saved ID:", last_id)
+print("Latest Title:", text)
 if post_id != last_id:
 
     mm = translate_burmese(text)
