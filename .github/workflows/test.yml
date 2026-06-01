@@ -12,10 +12,13 @@ jobs:
         with:
           python-version: '3.10'
       - run: pip install -r requirements.txt
-      - uses: actions/download-artifact@v4
+      
+      - name: Download last post IDs
+        uses: actions/download-artifact@v4
         with:
           name: last-post-ids
-          fail-on-unmatched-files: false
+        continue-on-error: true
+        
       - name: Run Bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
@@ -23,8 +26,11 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
         run: python main.py
-      - uses: actions/upload-artifact@v4
+        
+      - name: Upload last post IDs
+        uses: actions/upload-artifact@v4
         with:
           name: last-post-ids
           path: last_post_ids.json
-          
+
+
