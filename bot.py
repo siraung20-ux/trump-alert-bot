@@ -2,119 +2,111 @@ import os
 import requests
 import time
 
+# Config
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHANNEL_ID")
 X_BEARER_TOKEN = os.environ.get("X_BEARER_TOKEN")
 
-LAST_POST_FILE = "last_post_id.txt"
+LAST_FILE = "last_post_id.txt"
 
 def get_last_id():
-    if os.path.exists(LAST_POST_FILE):
-        with open(LAST_POST_FILE) as f:
-            return f.read().strip()
+    try:
+        if os.path.exists(LAST_FILE):
+            with open(LAST_FILE, "r") as f:
+                return f.read().strip()
+    except:
+        pass
     return "0"
 
-def save_last_id(pid):
-    with open(LAST_POST_FILE, "w") as f:
-        f.write(str(pid))
-
-def send_msg(text):
-    if not TELEGRAM_TOKEN or not CHAT_ID:
-        print("Telegram token missing")
-        return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    data = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}
+def save_last_id(post_id):
     try:
-        requests.post(url, json=data, timeout=10)
-        print("Sent to Telegram")
+        with open(LAST_FILE, "w") as f:
+            f.write(str(post_id))
     except:
-        print("Telegram send failed")
+        pass
+
+def send_to_telegram(text):
+    if not TELEGRAM_TOKEN or not CHAT_ID:
+        print("Telegram config missing")
+        return
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        data = {
+            "chat_id": CHAT_ID,
+            "text": text,
+            "parse_mode": "HTML"
+        }
+        requests.post(url, json=data, timeout=10)
+        print("✅ Sent to Telegram")
+    except Exception as e:
+        print("Telegram send failed:", e)
+
+print("🚀 Bot started...")
 
 # === TRUMP ===
-print("Checking Trump...")
+print("Checking Trump on Truth Social...")
 try:
     url = "https://truthsocial.com/api/v1/accounts/107780257626128497/statuses?limit=3"
     r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+    r.raise_for_status()
     posts = r.json()
-    
-    last = get_last_id()
-    for p in posts[:2]:   # နှစ်ခုပဲ စစ်မယ်
-        if str(p["id"]) != last:
-            content = p.get("content", "").replace("<p>", "").replace("</p>", "").replace("<br>", "\n")
-            msg = f"""🇺🇸 <b>Donald J. Trump</b>\n\n{content}\n\n🔗 https://truthsocial.com/@realDonaldTrump/posts/{p["id"]}\n\n──────────────────\n🇲🇲 <b>ဒေါ်နယ်ဒ် ထရမ့်</b>\n\n{content}"""
-            send_msg(msg)
-            save_last_id(p["id"])
+
+    last_id = get_last_id()
+    for post in posts:
+        pid = str(post.get("id"))
+        if pid != last_id and pid != "0":
+            content = post.get("content", "").replace("<p>", "").replace("</p>", "").replace("<br>", "\n")
+            msg = f"""🇺🇸 <b>Donald J. Trump</b>
+
+{content}
+
+🔗 https://truthsocial.com/@realDonaldTrump/posts/{pid}
+
+──────────────────
+🇲🇲 <b>ဒေါ်နယ်ဒ် ထရမ့်</b>
+
+{content}"""
+            send_to_telegram(msg)
+            save_last_id(pid)
             break
 except Exception as e:
-    print("Trump Error:", e)
+    print("Trump Error:", str(e))
 
 # === ELON ===
-print("Checking Elon...")
+print("Checking Elon on X...")
 if X_BEARER_TOKEN:
     try:
         url = "https://api.twitter.com/2/users/44196397/tweets?max_results=3"
         headers = {"Authorization": f"Bearer {X_BEARER_TOKEN}"}
         r = requests.get(url, headers=headers, timeout=15)
+        r.raise_for_status()
         data = r.json()
         posts = data.get("data", [])
-        
-        last = get_last_id()
-        for p in posts:
-            if str(p["id"]) != last:
-                text = p["text"].replace("\n", "\n\n")
-                msg = f"""🚀 <b>Elon Musk</b>\n\n{text}\n\n🔗 https://x.com/elonmusk/status/{p["id"]}\n\n──────────────────\n🇲🇲 <b>အီလွန် မတ်စ်</b>\n\n{text}"""
-                send_msg(msg)
-                save_last_id(p["id"])
-                break
-    except Exception as e:
-        print("Elon Error:", e)
-else:
-    print("No X Bearer Token")
 
-print("Bot finished")    params = {"max_results": 5, "tweet.fields": "created_at"}
-
-    try:
-        resp = requests.get(url, headers=headers, params=params, timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
-        posts = data.get("data", [])
-
-        last_id = get_last_post_id()
-        print(f"Last known Elon ID: {last_id}")
-
-        new_posts = []
+        last_id = get_last_id()
         for post in posts:
-            post_id = str(post.get("id"))
-            if post_id and post_id != last_id:
-                new_posts.append(post)
-            else:
-                break
-
-        if new_posts:
-            print(f"Found {len(new_posts)} new Elon post(s)")
-            for post in reversed(new_posts):
-                text = post.get("text", "").replace('\n', '\n\n')
-                
-                message = f"""
-🚀 <b>Elon Musk</b>
+            pid = str(post.get("id"))
+            if pid != last_id and pid != "0":
+                text = post.get("text", "").replace("\n", "\n\n")
+                msg = f"""🚀 <b>Elon Musk</b>
 
 {text}
 
-🔗 https://x.com/elonmusk/status/{post['id']}
+🔗 https://x.com/elonmusk/status/{pid}
 
 ──────────────────
 🇲🇲 <b>အီလွန် မတ်စ်</b>
 
-{text}
-                """.strip()
+{text}"""
+                send_to_telegram(msg)
+                save_last_id(pid)
+                break
+    except Exception as e:
+        print("Elon Error:", str(e))
+else:
+    print("No X Bearer Token provided")
 
-                send_telegram_message(message)
-                time.sleep(2)
-
-            set_last_post_id(new_posts[0]["id"])
-        else:
-            print("No new Elon posts.")
-
+print("✅ Bot finished")
     except Exception as e:
         print(f"❌ X (Twitter) Error: {e}")
         traceback.print_exc()
