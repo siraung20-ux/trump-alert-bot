@@ -1,36 +1,42 @@
-name: Social Media Bot
-on:
-  schedule:
-    - cron: '*/5 * * * *'
-  workflow_dispatch:
-jobs:
-  run-bot:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-      - run: pip install -r requirements.txt
-      
-      - name: Download last post IDs
-        uses: actions/download-artifact@v4
-        with:
-          name: last-post-ids
-        continue-on-error: true
-        
-      - name: Run Bot
-        env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
-        run: python main.py
-        
-      - name: Upload last post IDs
-        uses: actions/upload-artifact@v4
-        with:
-          name: last-post-ids
-          path: last_post_ids.json
+import os
+import tweepy
+import telebot
+from openai import OpenAI
 
+def test_connections():
+    print("--- Starting API Connection Test ---")
 
+    # 1. Test Telegram
+    try:
+        bot = telebot.TeleBot(os.getenv("TELEGRAM_BOT_TOKEN"))
+        me = bot.get_me()
+        print(f"✅ Telegram Bot: Success (Bot Name: {me.first_name})")
+    except Exception as e:
+        print(f"❌ Telegram Bot: Failed - {e}")
+
+    # 2. Test X (Twitter)
+    try:
+        client = tweepy.Client(bearer_token=os.getenv("X_BEARER_TOKEN"))
+        # Donald Trump ရဲ့ ID ကို စမ်းဆွဲကြည့်ခြင်း
+        user = client.get_user(username="realDonaldTrump")
+        print(f"✅ X API: Success (Found User ID: {user.data.id})")
+    except Exception as e:
+        print(f"❌ X API: Failed - {e}")
+
+    # 3. Test OpenAI
+    try:
+        client_ai = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        response = client_ai.chat.completions.create(
+            model="gpt-3.5-turbo", # စမ်းသပ်ရုံဆိုတော့ ဈေးသက်သာတာ သုံးထားပါတယ်
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=5
+        )
+        print("✅ OpenAI API: Success")
+    except Exception as e:
+        print(f"❌ OpenAI API: Failed - {e}")
+
+    print("--- Test Finished ---")
+
+if __name__ == "__main__":
+    test_connections()
+    
