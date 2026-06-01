@@ -1,41 +1,29 @@
-name: Trump + Elon Alert Bot
+name: Trump Live Bot
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 jobs:
-  check:
+  run:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: Install deps
+        run: pip install requests openai
 
-      - name: Run Bot
+      - name: Run bot
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
           X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: python bot.py
-
-      - name: Commit last_ids.json
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "GitHub Actions"
-          git add last_ids.json
-          git commit -m "Update last post IDs [skip ci]" || echo "No changes"
-          git push || echo "Push skipped"
+        run: python main.py
