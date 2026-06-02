@@ -1,4 +1,4 @@
-name: Trump Truth Bot
+workflow_code = """Name: Trump Truth Bot
 
 on:
 workflow_dispatch:
@@ -58,4 +58,4 @@ steps:
 
       git pull --rebase origin main || true
 
-      git push origin main
+      git push origin main"""
