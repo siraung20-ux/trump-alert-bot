@@ -29,50 +29,26 @@ deepseek_client = OpenAI(
 LAST_FILE = "last_post.txt"
 ALJAZEERA_LAST_FILE = "last_aljazeera.txt"
 
-KEYWORDS = [
-    "trump",
-    "iran",
-    "israel",
-    "usa",
-    "america",
-    "china",
-    "crypto",
-    "bitcoin",
-    "ethereum",
-    "war",
-    "hezbollah",
-    "lebanon",
-    "gaza",
-    "russia",
-    "ukraine",
-    "nato",
-    "syria"
-]
 
+# =========================
+# LAST ID SYSTEM
+# =========================
 
-def get_last_id():
-    if os.path.exists(LAST_FILE):
-        with open(LAST_FILE, "r") as f:
+def get_last(file):
+    if os.path.exists(file):
+        with open(file, "r") as f:
             return f.read().strip()
     return ""
 
 
-def save_last_id(post_id):
-    with open(LAST_FILE, "w") as f:
-        f.write(post_id)
+def save_last(file, value):
+    with open(file, "w") as f:
+        f.write(value)
 
 
-def get_last_aljazeera_id():
-    if os.path.exists(ALJAZEERA_LAST_FILE):
-        with open(ALJAZEERA_LAST_FILE, "r") as f:
-            return f.read().strip()
-    return ""
-
-
-def save_last_aljazeera_id(post_id):
-    with open(ALJAZEERA_LAST_FILE, "w") as f:
-        f.write(post_id)
-
+# =========================
+# BURMESE TRANSLATION (API CHAIN)
+# =========================
 
 def translate_burmese(text):
 
@@ -81,81 +57,59 @@ def translate_burmese(text):
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=f"""
-Translate this text into natural Burmese.
+Translate into natural Burmese.
 
 Rules:
-- Return Burmese only
-- Keep names unchanged
-- Preserve meaning
-- Do not explain
+- Burmese only
+- No explanation
+- Keep names
 
 Text:
 {text}
 """
         )
-
-        result = response.text.strip()
-
-        if result:
+        if response.text:
             print("Translation: Gemini")
-            return result
-
+            return response.text.strip()
     except Exception as e:
         print("Gemini Error:", e)
 
-    # OpenRouter
+    # OpenRouter fallback
     try:
         response = openrouter_client.chat.completions.create(
             model="google/gemini-2.0-flash-exp:free",
             messages=[
-                {
-                    "role": "system",
-                    "content": "Translate into natural Burmese. Return Burmese only."
-                },
-                {
-                    "role": "user",
-                    "content": text
-                }
+                {"role": "system", "content": "Translate into natural Burmese only."},
+                {"role": "user", "content": text}
             ]
         )
-
         result = response.choices[0].message.content.strip()
-
-        if result:
-            print("Translation: OpenRouter")
-            return result
-
+        print("Translation: OpenRouter")
+        return result
     except Exception as e:
         print("OpenRouter Error:", e)
 
-    # DeepSeek
+    # DeepSeek fallback
     try:
         response = deepseek_client.chat.completions.create(
             model="deepseek-chat",
             messages=[
-                {
-                    "role": "system",
-                    "content": "Translate into natural Burmese. Return Burmese only."
-                },
-                {
-                    "role": "user",
-                    "content": text
-                }
+                {"role": "system", "content": "Translate into natural Burmese only."},
+                {"role": "user", "content": text}
             ]
         )
-
         result = response.choices[0].message.content.strip()
-
-        if result:
-            print("Translation: DeepSeek")
-            return result
-
+        print("Translation: DeepSeek")
+        return result
     except Exception as e:
         print("DeepSeek Error:", e)
 
-    print("Translation: Original English")
     return text
 
+
+# =========================
+# TELEGRAM
+# =========================
 
 def send_telegram(message):
     try:
@@ -168,44 +122,31 @@ def send_telegram(message):
             },
             timeout=30
         )
-
     except Exception as e:
         print("Telegram Error:", e)
 
 
-# ==================================
-# TRUMP RSS
-# ==================================
+# =========================
+# TRUMP RSS (ALL POSTS)
+# =========================
 
 try:
-
     feed = feedparser.parse(RSS_URL)
 
     if feed.entries:
+        last_id = get_last(LAST_FILE)
 
-        last_id = get_last_id()
-
-        if last_id == "":
-
-            save_last_id(feed.entries[0].link)
-
-            print("First Trump run completed")
-
+        if not last_id:
+            save_last(LAST_FILE, feed.entries[0].link)
+            print("First run (Trump)")
         else:
-
             new_posts = []
 
             for entry in reversed(feed.entries):
-
-                if entry.link > last_id:
+                if entry.link != last_id:
                     new_posts.append(entry)
 
-            if not new_posts:
-
-                print("No Trump Post")
-
-            else:
-
+            if new_posts:
                 for entry in new_posts:
 
                     mm = translate_burmese(entry.title)
@@ -223,54 +164,38 @@ try:
 """
 
                     send_telegram(message)
+                    print("Sent:", entry.link)
 
-                    print("Trump Sent:", entry.link)
-
-                save_last_id(feed.entries[0].link)
+                save_last(LAST_FILE, feed.entries[0].link)
+            else:
+                print("No new Trump posts")
 
 except Exception as e:
-
     print("Trump RSS Error:", e)
 
 
-# ==================================
-# AL JAZEERA RSS
-# ==================================
+# =========================
+# AL JAZEERA RSS (ALL POSTS)
+# =========================
 
 try:
-
     aj_feed = feedparser.parse(ALJAZEERA_RSS)
 
     if aj_feed.entries:
+        last_aj = get_last(ALJAZEERA_LAST_FILE)
 
-        last_aj = get_last_aljazeera_id()
-
-        if last_aj == "":
-
-            save_last_aljazeera_id(aj_feed.entries[0].link)
-
-            print("First Al Jazeera run completed")
-
+        if not last_aj:
+            save_last(ALJAZEERA_LAST_FILE, aj_feed.entries[0].link)
+            print("First run (AJ)")
         else:
-
-            new_aj_posts = []
+            new_aj = []
 
             for entry in reversed(aj_feed.entries):
+                if entry.link != last_aj:
+                    new_aj.append(entry)
 
-                title = entry.title.lower()
-
-                if any(keyword in title for keyword in KEYWORDS):
-
-                    if entry.link > last_aj:
-                        new_aj_posts.append(entry)
-
-            if not new_aj_posts:
-
-                print("No Al Jazeera News")
-
-            else:
-
-                for entry in new_aj_posts:
+            if new_aj:
+                for entry in new_aj:
 
                     mm = translate_burmese(entry.title)
 
@@ -287,13 +212,13 @@ try:
 """
 
                     send_telegram(message)
+                    print("Sent AJ:", entry.link)
 
-                    print("AJ Sent:", entry.link)
-
-                save_last_aljazeera_id(aj_feed.entries[0].link)
+                save_last(ALJAZEERA_LAST_FILE, aj_feed.entries[0].link)
+            else:
+                print("No new Al Jazeera posts")
 
 except Exception as e:
-
     print("Al Jazeera RSS Error:", e)
 
 print("Bot Finished Successfully")
