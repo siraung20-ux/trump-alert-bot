@@ -40,11 +40,13 @@ jobs:
         run: python main.py
 
       - name: Commit Last Post ID
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+  run: |
+    git config user.name "github-actions[bot]"
+    git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add last_post.txt
+    git pull --rebase origin main
 
-          git diff --cached --quiet || git commit -m "update last post id"
-          git push
+    git add last_post.txt last_aljazeera.txt
+    git commit -m "update last ids" || echo "No changes"
+
+    git push origin main
