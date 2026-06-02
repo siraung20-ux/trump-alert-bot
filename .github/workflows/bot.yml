@@ -1,4 +1,4 @@
-name: Trump Truth Bot
+Name: Trump Truth Bot
 
 on:
   workflow_dispatch:
@@ -40,7 +40,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-        run: python Bot.py   # 👈 ဒီနေရာကို မင်း file name အတိုင်းပြောင်း
+        run: python main.py
 
       - name: Commit Last IDs
         run: |
@@ -55,5 +55,7 @@ jobs:
           fi
 
           git commit -m "update last ids"
+
           git pull --rebase origin main || true
+
           git push origin main
