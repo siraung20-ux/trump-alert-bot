@@ -1,4 +1,4 @@
-Name: Trump Truth Bot
+name: Trump Truth Bot
 
 on:
   workflow_dispatch:
