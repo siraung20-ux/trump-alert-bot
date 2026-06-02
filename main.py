@@ -59,7 +59,7 @@ def translate_burmese(text):
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=f"""
-Translate this social media post into natural Burmese.
+Translate this news or social media post into natural Burmese.
 
 Rules:
 - Return Burmese only
@@ -68,11 +68,10 @@ Rules:
 - Keep names unchanged
 - Preserve original meaning
 
-Post:
+Text:
 {text}
 """
         )
-
         return response.text.strip()
 
     except Exception as e:
@@ -87,85 +86,36 @@ def send_telegram(message):
             "chat_id": CHANNEL_ID,
             "text": message,
             "disable_web_page_preview": True
-        }
+        },
+        timeout=30
     )
 
 
-# =====================
+# ==========================
 # TRUMP RSS
-# =====================
+# ==========================
 
-feed = feedparser.parse(RSS_URL)
+try:
+    feed = feedparser.parse(RSS_URL)
 
-if feed.entries:
+    if feed.entries:
 
-    last_id = get_last_id()
+        last_id = get_last_id()
+        new_posts = []
 
-    new_posts = []
+        for entry in reversed(feed.entries):
+            if entry.link > last_id:
+                new_posts.append(entry)
 
-    for entry in reversed(feed.entries):
-        if entry.link > last_id:
-            new_posts.append(entry)
+        if not new_posts:
+            print("No Trump Post")
 
-    if not new_posts:
-        print("No Trump Post")
+        else:
+            for entry in new_posts:
 
-    else:
+                mm = translate_burmese(entry.title)
 
-        for entry in new_posts:
-
-            mm = translate_burmese(entry.title)
-
-            message = f"""🚨 TRUMP TRUTH UPDATE
-
-🇺🇸 English:
-{entry.title}
-
-🇲🇲 Burmese:
-{mm}
-
-🔗 Source:
-{entry.link}
-"""
-
-            send_telegram(message)
-
-            print("Trump Sent:", entry.link)
-
-        save_last_id(feed.entries[0].link)
-
-
-# =====================
-# AL JAZEERA RSS
-# =====================
-
-aj_feed = feedparser.parse(ALJAZEERA_RSS)
-
-if aj_feed.entries:
-
-    last_aj = get_last_aljazeera_id()
-
-    new_aj_posts = []
-
-    for entry in reversed(aj_feed.entries):
-
-        title = entry.title.lower()
-
-        if any(keyword in title for keyword in KEYWORDS):
-
-            if entry.link > last_aj:
-                new_aj_posts.append(entry)
-
-    if not new_aj_posts:
-        print("No Al Jazeera News")
-
-    else:
-
-        for entry in new_aj_posts:
-
-            mm = translate_burmese(entry.title)
-
-            message = f"""🌍 BREAKING NEWS
+                message = f"""🚨 TRUMP TRUTH UPDATE
 
 🇺🇸 English:
 {entry.title}
@@ -177,8 +127,65 @@ if aj_feed.entries:
 {entry.link}
 """
 
-            send_telegram(message)
+                send_telegram(message)
 
-            print("AJ Sent:", entry.link)
+                print("Trump Sent:", entry.link)
 
-        save_last_aljazeera_id(new_aj_posts[-1].link)
+            save_last_id(feed.entries[0].link)
+
+except Exception as e:
+    print("Trump RSS Error:", e)
+
+
+# ==========================
+# AL JAZEERA BREAKING NEWS
+# ==========================
+
+try:
+    aj_feed = feedparser.parse(ALJAZEERA_RSS)
+
+    if aj_feed.entries:
+
+        last_aj = get_last_aljazeera_id()
+        new_aj_posts = []
+
+        for entry in reversed(aj_feed.entries):
+
+            title = entry.title.lower()
+
+            if any(keyword in title for keyword in KEYWORDS):
+
+                if entry.link > last_aj:
+                    new_aj_posts.append(entry)
+
+        if not new_aj_posts:
+            print("No Al Jazeera News")
+
+        else:
+
+            for entry in new_aj_posts:
+
+                mm = translate_burmese(entry.title)
+
+                message = f"""🌍 BREAKING NEWS
+
+🇺🇸 English:
+{entry.title}
+
+🇲🇲 Burmese:
+{mm}
+
+🔗 Source:
+{entry.link}
+"""
+
+                send_telegram(message)
+
+                print("AJ Sent:", entry.link)
+
+            save_last_aljazeera_id(new_aj_posts[-1].link)
+
+except Exception as e:
+    print("Al Jazeera RSS Error:", e)
+
+print("Bot Finished Successfully")
