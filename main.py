@@ -4,6 +4,7 @@ import requests
 from google import genai
 
 RSS_URL = "https://trumpstruth.org/feed"
+ALJAZEERA_RSS = "https://www.aljazeera.com/xml/rss/all.xml"
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHANNEL_ID = os.environ["CHANNEL_ID"]
@@ -12,6 +13,21 @@ GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 LAST_FILE = "last_post.txt"
+ALJAZEERA_LAST_FILE = "last_aljazeera.txt"
+
+KEYWORDS = [
+    "trump",
+    "iran",
+    "israel",
+    "usa",
+    "america",
+    "china",
+    "crypto",
+    "bitcoin",
+    "ethereum",
+    "war",
+    "hezbollah"
+]
 
 
 def get_last_id():
@@ -26,6 +42,18 @@ def save_last_id(post_id):
         f.write(post_id)
 
 
+def get_last_aljazeera_id():
+    if os.path.exists(ALJAZEERA_LAST_FILE):
+        with open(ALJAZEERA_LAST_FILE, "r") as f:
+            return f.read().strip()
+    return ""
+
+
+def save_last_aljazeera_id(post_id):
+    with open(ALJAZEERA_LAST_FILE, "w") as f:
+        f.write(post_id)
+
+
 def translate_burmese(text):
     try:
         response = client.models.generate_content(
@@ -34,11 +62,11 @@ def translate_burmese(text):
 Translate this social media post into natural Burmese.
 
 Rules:
-- Return Burmese only.
-- Do not explain.
-- Do not summarize.
-- Keep names unchanged.
-- Preserve original meaning and tone.
+- Return Burmese only
+- Do not explain
+- Do not summarize
+- Keep names unchanged
+- Preserve original meaning
 
 Post:
 {text}
@@ -63,55 +91,94 @@ def send_telegram(message):
     )
 
 
+# =====================
+# TRUMP RSS
+# =====================
+
 feed = feedparser.parse(RSS_URL)
 
-print("TOTAL POSTS:", len(feed.entries))
+if feed.entries:
 
-for i in range(min(5, len(feed.entries))):
-    print(i, feed.entries[i].link)
+    last_id = get_last_id()
 
-if not feed.entries:
-    raise Exception("RSS Feed Empty")
+    new_posts = []
 
-latest = feed.entries[0]
+    for entry in reversed(feed.entries):
+        if entry.link > last_id:
+            new_posts.append(entry)
 
-post_id = latest.id
-text = latest.title
-link = latest.link
+    if not new_posts:
+        print("No Trump Post")
 
-last_id = get_last_id()
+    else:
 
-new_posts = []
+        for entry in new_posts:
 
-for entry in reversed(feed.entries):
-    if entry.link > last_id:
-        new_posts.append(entry)
+            mm = translate_burmese(entry.title)
 
-if not new_posts:
-    print("No New Post")
-else:
-    for entry in new_posts:
-
-        post_id = entry.link
-        text = entry.title
-        link = entry.link
-
-        mm = translate_burmese(text)
-
-        message = f"""🚨 TRUMP TRUTH UPDATE
+            message = f"""🚨 TRUMP TRUTH UPDATE
 
 🇺🇸 English:
-{text}
+{entry.title}
 
 🇲🇲 Burmese:
 {mm}
 
 🔗 Source:
-{link}
+{entry.link}
 """
 
-        send_telegram(message)
+            send_telegram(message)
 
-        print("Sent:", post_id)
+            print("Trump Sent:", entry.link)
 
-    save_last_id(feed.entries[0].link)
+        save_last_id(feed.entries[0].link)
+
+
+# =====================
+# AL JAZEERA RSS
+# =====================
+
+aj_feed = feedparser.parse(ALJAZEERA_RSS)
+
+if aj_feed.entries:
+
+    last_aj = get_last_aljazeera_id()
+
+    new_aj_posts = []
+
+    for entry in reversed(aj_feed.entries):
+
+        title = entry.title.lower()
+
+        if any(keyword in title for keyword in KEYWORDS):
+
+            if entry.link > last_aj:
+                new_aj_posts.append(entry)
+
+    if not new_aj_posts:
+        print("No Al Jazeera News")
+
+    else:
+
+        for entry in new_aj_posts:
+
+            mm = translate_burmese(entry.title)
+
+            message = f"""🌍 BREAKING NEWS
+
+🇺🇸 English:
+{entry.title}
+
+🇲🇲 Burmese:
+{mm}
+
+🔗 Source:
+{entry.link}
+"""
+
+            send_telegram(message)
+
+            print("AJ Sent:", entry.link)
+
+        save_last_aljazeera_id(new_aj_posts[-1].link)
