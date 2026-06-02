@@ -59,63 +59,79 @@ def translate_burmese(text):
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=f"""
-Translate this news or social media post into natural Burmese.
+Translate this text into natural Burmese.
 
 Rules:
 - Return Burmese only
-- Do not explain
-- Do not summarize
 - Keep names unchanged
-- Preserve original meaning
+- Preserve meaning
 
 Text:
 {text}
 """
         )
+
         return response.text.strip()
 
     except Exception as e:
         print("Gemini Error:", e)
-        return "ဘာသာပြန်မရပါ။"
+
+        return f"(Translation unavailable)\n{text}"
 
 
 def send_telegram(message):
-    requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        json={
-            "chat_id": CHANNEL_ID,
-            "text": message,
-            "disable_web_page_preview": True
-        },
-        timeout=30
-    )
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={
+                "chat_id": CHANNEL_ID,
+                "text": message,
+                "disable_web_page_preview": True
+            },
+            timeout=30
+        )
+    except Exception as e:
+        print("Telegram Error:", e)
 
 
-# ==========================
+# ==================================
 # TRUMP RSS
-# ==========================
+# ==================================
 
 try:
+
     feed = feedparser.parse(RSS_URL)
 
     if feed.entries:
 
         last_id = get_last_id()
-        new_posts = []
 
-        for entry in reversed(feed.entries):
-            if entry.link > last_id:
-                new_posts.append(entry)
+        if last_id == "":
 
-        if not new_posts:
-            print("No Trump Post")
+            save_last_id(feed.entries[0].link)
+
+            print("First Trump run completed")
 
         else:
-            for entry in new_posts:
 
-                mm = translate_burmese(entry.title)
+            new_posts = []
 
-                message = f"""🚨 TRUMP TRUTH UPDATE
+            for entry in reversed(feed.entries):
+
+                if entry.link > last_id:
+                    new_posts.append(entry)
+
+            if not new_posts:
+
+                print("No Trump Post")
+
+            else:
+
+                for entry in new_posts:
+
+                    mm = translate_burmese(entry.title)
+
+                    message = f"""🚨 TRUMP TRUTH UPDATE
 
 🇺🇸 English:
 {entry.title}
@@ -127,47 +143,59 @@ try:
 {entry.link}
 """
 
-                send_telegram(message)
+                    send_telegram(message)
 
-                print("Trump Sent:", entry.link)
+                    print("Trump Sent:", entry.link)
 
-            save_last_id(feed.entries[0].link)
+                save_last_id(feed.entries[0].link)
 
 except Exception as e:
+
     print("Trump RSS Error:", e)
 
 
-# ==========================
-# AL JAZEERA BREAKING NEWS
-# ==========================
+# ==================================
+# AL JAZEERA RSS
+# ==================================
 
 try:
+
     aj_feed = feedparser.parse(ALJAZEERA_RSS)
 
     if aj_feed.entries:
 
         last_aj = get_last_aljazeera_id()
-        new_aj_posts = []
 
-        for entry in reversed(aj_feed.entries):
+        if last_aj == "":
 
-            title = entry.title.lower()
+            save_last_aljazeera_id(aj_feed.entries[0].link)
 
-            if any(keyword in title for keyword in KEYWORDS):
-
-                if entry.link > last_aj:
-                    new_aj_posts.append(entry)
-
-        if not new_aj_posts:
-            print("No Al Jazeera News")
+            print("First Al Jazeera run completed")
 
         else:
 
-            for entry in new_aj_posts:
+            new_aj_posts = []
 
-                mm = translate_burmese(entry.title)
+            for entry in reversed(aj_feed.entries):
 
-                message = f"""🌍 BREAKING NEWS
+                title = entry.title.lower()
+
+                if any(keyword in title for keyword in KEYWORDS):
+
+                    if entry.link > last_aj:
+                        new_aj_posts.append(entry)
+
+            if not new_aj_posts:
+
+                print("No Al Jazeera News")
+
+            else:
+
+                for entry in new_aj_posts:
+
+                    mm = translate_burmese(entry.title)
+
+                    message = f"""🌍 BREAKING NEWS
 
 🇺🇸 English:
 {entry.title}
@@ -179,13 +207,14 @@ try:
 {entry.link}
 """
 
-                send_telegram(message)
+                    send_telegram(message)
 
-                print("AJ Sent:", entry.link)
+                    print("AJ Sent:", entry.link)
 
-            save_last_aljazeera_id(new_aj_posts[-1].link)
+                save_last_aljazeera_id(aj_feed.entries[0].link)
 
 except Exception as e:
+
     print("Al Jazeera RSS Error:", e)
 
 print("Bot Finished Successfully")
