@@ -2,15 +2,29 @@ import os
 import feedparser
 import requests
 from google import genai
+from openai import OpenAI
 
 RSS_URL = "https://trumpstruth.org/feed"
 ALJAZEERA_RSS = "https://www.aljazeera.com/xml/rss/all.xml"
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHANNEL_ID = os.environ["CHANNEL_ID"]
+
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
+DEEPSEEK_API_KEY = os.environ["DEEPSEEK_API_KEY"]
 
 client = genai.Client(api_key=GEMINI_API_KEY)
+
+openrouter_client = OpenAI(
+    api_key=OPENROUTER_API_KEY,
+    base_url="https://openrouter.ai/api/v1"
+)
+
+deepseek_client = OpenAI(
+    api_key=DEEPSEEK_API_KEY,
+    base_url="https://api.deepseek.com"
+)
 
 LAST_FILE = "last_post.txt"
 ALJAZEERA_LAST_FILE = "last_aljazeera.txt"
@@ -26,7 +40,13 @@ KEYWORDS = [
     "bitcoin",
     "ethereum",
     "war",
-    "hezbollah"
+    "hezbollah",
+    "lebanon",
+    "gaza",
+    "russia",
+    "ukraine",
+    "nato",
+    "syria"
 ]
 
 
@@ -55,6 +75,8 @@ def save_last_aljazeera_id(post_id):
 
 
 def translate_burmese(text):
+
+    # Gemini
     try:
         response = client.models.generate_content(
             model="gemini-2.5-flash",
@@ -65,18 +87,74 @@ Rules:
 - Return Burmese only
 - Keep names unchanged
 - Preserve meaning
+- Do not explain
 
 Text:
 {text}
 """
         )
 
-        return response.text.strip()
+        result = response.text.strip()
+
+        if result:
+            print("Translation: Gemini")
+            return result
 
     except Exception as e:
         print("Gemini Error:", e)
 
-        return f"(Translation unavailable)\n{text}"
+    # OpenRouter
+    try:
+        response = openrouter_client.chat.completions.create(
+            model="google/gemini-2.0-flash-exp:free",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Translate into natural Burmese. Return Burmese only."
+                },
+                {
+                    "role": "user",
+                    "content": text
+                }
+            ]
+        )
+
+        result = response.choices[0].message.content.strip()
+
+        if result:
+            print("Translation: OpenRouter")
+            return result
+
+    except Exception as e:
+        print("OpenRouter Error:", e)
+
+    # DeepSeek
+    try:
+        response = deepseek_client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Translate into natural Burmese. Return Burmese only."
+                },
+                {
+                    "role": "user",
+                    "content": text
+                }
+            ]
+        )
+
+        result = response.choices[0].message.content.strip()
+
+        if result:
+            print("Translation: DeepSeek")
+            return result
+
+    except Exception as e:
+        print("DeepSeek Error:", e)
+
+    print("Translation: Original English")
+    return text
 
 
 def send_telegram(message):
@@ -90,6 +168,7 @@ def send_telegram(message):
             },
             timeout=30
         )
+
     except Exception as e:
         print("Telegram Error:", e)
 
