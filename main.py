@@ -47,6 +47,7 @@ def translate_burmese(text):
     if not text:
         return ""
 
+    # Gemini
     try:
         response = client.models.generate_content(
             model="gemini-2.5-flash",
@@ -57,6 +58,7 @@ Rules:
 - Burmese only
 - Keep names unchanged
 - No explanations
+- Preserve meaning
 
 Text:
 {text}
@@ -70,12 +72,19 @@ Text:
     except Exception as e:
         print("Gemini Error:", e)
 
+    # OpenRouter
     try:
         response = openrouter_client.chat.completions.create(
-            model="google/gemini-2.0-flash-exp:free",
+            model="deepseek/deepseek-chat-v3-0324:free",
             messages=[
-                {"role": "system", "content": "Translate into natural Burmese only."},
-                {"role": "user", "content": text}
+                {
+                    "role": "system",
+                    "content": "Translate into natural Burmese only."
+                },
+                {
+                    "role": "user",
+                    "content": text
+                }
             ]
         )
 
@@ -88,12 +97,19 @@ Text:
     except Exception as e:
         print("OpenRouter Error:", e)
 
+    # DeepSeek
     try:
         response = deepseek_client.chat.completions.create(
             model="deepseek-chat",
             messages=[
-                {"role": "system", "content": "Translate into natural Burmese only."},
-                {"role": "user", "content": text}
+                {
+                    "role": "system",
+                    "content": "Translate into natural Burmese only."
+                },
+                {
+                    "role": "user",
+                    "content": text
+                }
             ]
         )
 
@@ -110,8 +126,9 @@ Text:
 
 
 def send_telegram(message):
+
     try:
-        requests.post(
+        r = requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             json={
                 "chat_id": CHANNEL_ID,
@@ -121,13 +138,31 @@ def send_telegram(message):
             timeout=30
         )
 
+        print("Telegram:", r.status_code)
+
     except Exception as e:
         print("Telegram Error:", e)
 
 
-# =====================================
+def valid_title(title):
+
+    if not title:
+        return False
+
+    title = title.strip()
+
+    if not title:
+        return False
+
+    if "[No Title]" in title:
+        return False
+
+    return True
+
+
+# ==================================
 # TRUMP RSS
-# =====================================
+# ==================================
 
 try:
 
@@ -137,6 +172,9 @@ try:
 
         newest_link = feed.entries[0].link
         last_id = get_last(LAST_FILE)
+
+        print("Trump Latest:", newest_link)
+        print("Trump Last Saved:", last_id)
 
         if not last_id:
 
@@ -156,12 +194,14 @@ try:
 
             new_posts.reverse()
 
+            print("Trump New Posts:", len(new_posts))
+
             for entry in new_posts:
 
                 title = getattr(entry, "title", "").strip()
 
-                if not title:
-                    print("Skipped No Title:", entry.link)
+                if not valid_title(title):
+                    print("Skipped:", entry.link)
                     continue
 
                 mm = translate_burmese(title)
@@ -185,15 +225,17 @@ try:
             save_last(LAST_FILE, newest_link)
 
         else:
+
             print("No New Trump Post")
 
 except Exception as e:
+
     print("Trump RSS Error:", e)
 
 
-# =====================================
+# ==================================
 # AL JAZEERA RSS
-# =====================================
+# ==================================
 
 try:
 
@@ -203,6 +245,9 @@ try:
 
         newest_link = feed.entries[0].link
         last_id = get_last(ALJAZEERA_LAST_FILE)
+
+        print("AJ Latest:", newest_link)
+        print("AJ Last Saved:", last_id)
 
         if not last_id:
 
@@ -222,11 +267,13 @@ try:
 
             new_posts.reverse()
 
+            print("AJ New Posts:", len(new_posts))
+
             for entry in new_posts:
 
                 title = getattr(entry, "title", "").strip()
 
-                if not title:
+                if not valid_title(title):
                     continue
 
                 mm = translate_burmese(title)
@@ -250,9 +297,11 @@ try:
             save_last(ALJAZEERA_LAST_FILE, newest_link)
 
         else:
+
             print("No New Al Jazeera News")
 
 except Exception as e:
+
     print("Al Jazeera RSS Error:", e)
 
 print("Bot Finished Successfully")
