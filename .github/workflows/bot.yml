@@ -47,15 +47,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          git pull --rebase origin main
+
           git add last_post.txt last_aljazeera.txt
 
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
+          git diff --cached --quiet && echo "No changes" && exit 0
 
           git commit -m "update last ids"
 
-          git pull --rebase origin main || true
-
-          git push origin main
+          git push origin HEAD:main
