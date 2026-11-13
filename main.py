@@ -1,8 +1,11 @@
+
 import os
 import re
+import json
 import html
 import requests
 import feedparser
+
 from google import genai
 from openai import OpenAI
 
@@ -16,23 +19,32 @@ ALJAZEERA_RSS = "https://www.aljazeera.com/xml/rss/all.xml"
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHANNEL_ID = os.environ["CHANNEL_ID"]
 
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
-DEEPSEEK_API_KEY = os.environ["DEEPSEEK_API_KEY"]
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 
-client = genai.Client(api_key=GEMINI_API_KEY)
+GEMINI_MODEL = "gemini-2.5-flash"
 
-openrouter_client = OpenAI(
-    api_key=OPENROUTER_API_KEY,
-    base_url="https://openrouter.ai/api/v1"
+client = (
+    genai.Client(api_key=GEMINI_API_KEY)
+    if GEMINI_API_KEY else None
 )
 
-deepseek_client = OpenAI(
-    api_key=DEEPSEEK_API_KEY,
-    base_url="https://api.deepseek.com"
+openrouter_client = (
+    OpenAI(
+        api_key=OPENROUTER_API_KEY,
+        base_url="https://openrouter.ai/api/v1"
+    )
+    if OPENROUTER_API_KEY else None
 )
 
-DECISION_URL = "https://generativelanguage.googleapis.com/v1beta/decisions"
+deepseek_client = (
+    OpenAI(
+        api_key=DEEPSEEK_API_KEY,
+        base_url="https://api.deepseek.com"
+    )
+    if DEEPSEEK_API_KEY else None
+)
 
 LAST_FILE = "last_post.txt"
 ALJAZEERA_LAST_FILE = "last_aljazeera.txt"
@@ -55,160 +67,299 @@ def save_last(file, value):
 
 
 # ==================================
-# GEMINI DECISION API
+# JSON PARSER
 # ==================================
 
-def find_decision(data, key):
-    """Find a decision field even if the API response is nested."""
+def parse_json(text):
 
-    if isinstance(data, dict):
-        if key in data:
-            return data[key]
+    if not text:
+        raise ValueError("Empty AI response")
 
-        for value in data.values():
-            result = find_decision(value, key)
-            if result is not None:
-                return result
+    text = text.strip()
 
-    elif isinstance(data, list):
-        for item in data:
-            result = find_decision(item, key)
-            if result is not None:
-                return result
+    # Remove markdown code fences
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
 
-    return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Extract JSON object if extra text exists
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+
+    if match:
+        return json.loads(match.group())
+
+    raise ValueError("Invalid JSON response")
 
 
-def decision_value(item, possible_keys):
-    if isinstance(item, dict):
-        for key in possible_keys:
-            if key in item:
-                return item[key]
-    return item
+# ==================================
+# MARKET ANALYSIS PROMPT
+# ==================================
 
+def market_prompt(title, summary):
+
+    return f"""
+You are a professional financial news analyst.
+
+Analyze the following news for possible financial market impact.
+
+NEWS HEADLINE:
+{title}
+
+NEWS SUMMARY:
+{summary[:2500]}
+
+Return ONLY valid JSON with these fields:
+
+{{
+  "market_relevant": true,
+  "category": "politics",
+  "sentiment": "neutral",
+  "importance": 1,
+  "impact": "Short explanation of possible market impact."
+}}
+
+RULES:
+
+1. market_relevant:
+true if the news has a meaningful connection to:
+Stocks, Crypto, Forex, Gold, Oil, Commodities,
+Interest rates, Inflation, Trade or Global Economy.
+
+false if there is no meaningful direct market connection.
+
+2. category must be exactly one of:
+politics
+war_conflict
+economy_trade
+crypto
+financial_markets
+other
+
+3. sentiment must be exactly one of:
+bullish
+bearish
+neutral
+unclear
+
+Sentiment refers to the likely overall market impact,
+not whether the news is good or bad politically.
+
+4. importance must be an integer:
+1 = LOW
+2 = MEDIUM
+3 = HIGH
+
+5. impact:
+Write one short sentence explaining the potential market impact.
+Do not invent facts or price predictions.
+
+6. If there is no direct market impact:
+market_relevant = false
+sentiment = neutral
+importance = 1
+
+7. Do not confuse speculation with confirmed facts.
+"""
+
+
+# ==================================
+# VALIDATE ANALYSIS
+# ==================================
+
+def validate_analysis(data):
+
+    if not isinstance(data, dict):
+        raise ValueError("Response is not a JSON object")
+
+    category_options = [
+        "politics",
+        "war_conflict",
+        "economy_trade",
+        "crypto",
+        "financial_markets",
+        "other"
+    ]
+
+    sentiment_options = [
+        "bullish",
+        "bearish",
+        "neutral",
+        "unclear"
+    ]
+
+    category = str(data.get("category", "other")).lower()
+    sentiment = str(data.get("sentiment", "unclear")).lower()
+
+    if category not in category_options:
+        category = "other"
+
+    if sentiment not in sentiment_options:
+        sentiment = "unclear"
+
+    market = data.get("market_relevant", False)
+
+    if isinstance(market, str):
+        market = market.lower() in ("true", "yes", "1")
+
+    if not isinstance(market, bool):
+        market = False
+
+    try:
+        importance = int(data.get("importance", 1))
+    except (TypeError, ValueError):
+        importance = 1
+
+    importance = max(1, min(3, importance))
+
+    impact = str(
+        data.get("impact", "No direct market impact identified.")
+    ).strip()
+
+    if not market:
+        sentiment = "neutral"
+        importance = 1
+
+    return {
+        "market": market,
+        "category": category,
+        "sentiment": sentiment,
+        "importance": importance,
+        "impact": impact[:400]
+    }
+
+
+# ==================================
+# GEMINI MARKET ANALYSIS
+# ==================================
+
+def analyze_gemini(prompt):
+
+    if not client:
+        raise ValueError("GEMINI_API_KEY missing")
+
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
+        config={
+            "response_mime_type": "application/json",
+            "temperature": 0.1,
+            "max_output_tokens": 400
+        }
+    )
+
+    return validate_analysis(parse_json(response.text))
+
+
+# ==================================
+# OPENROUTER MARKET ANALYSIS
+# ==================================
+
+def analyze_openrouter(prompt):
+
+    if not openrouter_client:
+        raise ValueError("OPENROUTER_API_KEY missing")
+
+    response = openrouter_client.chat.completions.create(
+        model="deepseek/deepseek-chat:free",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a financial news analyst. "
+                    "Return only valid JSON."
+                )
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.1,
+        max_tokens=400
+    )
+
+    return validate_analysis(
+        parse_json(response.choices[0].message.content)
+    )
+
+
+# ==================================
+# DEEPSEEK MARKET ANALYSIS
+# ==================================
+
+def analyze_deepseek(prompt):
+
+    if not deepseek_client:
+        raise ValueError("DEEPSEEK_API_KEY missing")
+
+    response = deepseek_client.chat.completions.create(
+        model="deepseek-chat",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a financial news analyst. "
+                    "Return only valid JSON."
+                )
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.1,
+        max_tokens=400
+    )
+
+    return validate_analysis(
+        parse_json(response.choices[0].message.content)
+    )
+
+
+# ==================================
+# MAIN ANALYSIS WITH FALLBACK
+# ==================================
 
 def analyze_news(title, summary=""):
 
-    text = f"""
-Headline: {title}
+    prompt = market_prompt(title, summary)
 
-Summary:
-{summary}
-"""
+    providers = [
+        ("Gemini", analyze_gemini),
+        ("OpenRouter", analyze_openrouter),
+        ("DeepSeek", analyze_deepseek)
+    ]
 
-    questions = {
-        "market_relevant": {
-            "type": "noul",
-            "description": (
-                "Is this news relevant to financial markets, stocks, "
-                "cryptocurrency, currencies, commodities, or investors?"
-            )
-        },
+    for provider_name, provider_function in providers:
 
-        "category": {
-            "type": "choice",
-            "options": [
-                "politics",
-                "war_conflict",
-                "economy_trade",
-                "crypto",
-                "financial_markets",
-                "other"
-            ],
-            "description": "Choose the main category of this news."
-        },
+        try:
 
-        "sentiment": {
-            "type": "choice",
-            "options": [
-                "bullish",
-                "bearish",
-                "neutral",
-                "unclear"
-            ],
-            "description": (
-                "What is the likely market impact sentiment of this news?"
-            )
-        },
+            result = provider_function(prompt)
 
-        "importance": {
-            "type": "score",
-            "criteria": [
-                "Low: Limited impact or routine news.",
-                "Medium: Meaningful development with some market impact.",
-                "High: Major geopolitical, economic, or financial event "
-                "with potentially significant market impact."
-            ],
-            "description": "Rate the importance of this news."
-        }
+            print(f"Market Analysis: {provider_name} SUCCESS")
+            print("Result:", result)
+
+            return result
+
+        except Exception as e:
+
+            print(f"{provider_name} Analysis Error: {type(e).__name__}: {e}")
+
+    print("ALL MARKET ANALYSIS PROVIDERS FAILED")
+
+    return {
+        "market": False,
+        "category": "other",
+        "sentiment": "unclear",
+        "importance": 1,
+        "impact": "Analysis unavailable. All AI providers failed."
     }
-
-    try:
-        response = requests.post(
-            DECISION_URL,
-            headers={
-                "x-goog-api-key": GEMINI_API_KEY,
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": "gemini-decision-1",
-                "input": text,
-                "questions": questions
-            },
-            timeout=45
-        )
-
-        response.raise_for_status()
-        data = response.json()
-
-        market_item = find_decision(data, "market_relevant")
-        category_item = find_decision(data, "category")
-        sentiment_item = find_decision(data, "sentiment")
-        importance_item = find_decision(data, "importance")
-
-        market_score = decision_value(
-            market_item, ["noul", "value", "score"]
-        )
-
-        category = decision_value(
-            category_item, ["choice", "value", "result"]
-        )
-
-        sentiment = decision_value(
-            sentiment_item, ["choice", "value", "result"]
-        )
-
-        importance_score = decision_value(
-            importance_item, ["score", "value", "result"]
-        )
-
-        try:
-            market_score = float(market_score)
-        except (TypeError, ValueError):
-            market_score = 0
-
-        try:
-            importance_score = float(importance_score)
-        except (TypeError, ValueError):
-            importance_score = 0
-
-        print("Decision API: Success")
-        print("Market Score:", market_score)
-        print("Category:", category)
-        print("Sentiment:", sentiment)
-        print("Importance:", importance_score)
-
-        return {
-            "market": market_score >= 0.65,
-            "market_score": market_score,
-            "category": str(category or "other"),
-            "sentiment": str(sentiment or "unclear"),
-            "importance": importance_score
-        }
-
-    except Exception as e:
-        print("Decision API Error:", e)
-        return None
 
 
 # ==================================
@@ -216,12 +367,6 @@ Summary:
 # ==================================
 
 def format_analysis(result):
-
-    if not result:
-        return (
-            "📊 MARKET ANALYSIS\n"
-            "⚪ Analysis unavailable"
-        )
 
     categories = {
         "politics": "Politics",
@@ -239,25 +384,33 @@ def format_analysis(result):
         "unclear": "❔ Unclear"
     }
 
-    category = result["category"].lower()
-    sentiment = result["sentiment"].lower()
-    score = result["importance"]
+    importance_map = {
+        1: "🟢 LOW",
+        2: "🟡 MEDIUM",
+        3: "🔴 HIGH"
+    }
 
-    if score >= 1.5:
-        importance = "🔴 HIGH"
-    elif score >= 0.5:
-        importance = "🟡 MEDIUM"
-    else:
-        importance = "🟢 LOW"
+    if not result:
+        return (
+            "📊 MARKET ANALYSIS\n"
+            "⚪ Analysis unavailable"
+        )
+
+    category = result["category"]
+    sentiment = result["sentiment"]
+    importance = result["importance"]
 
     market = "Yes" if result["market"] else "No"
 
     return f"""📊 MARKET ANALYSIS
 
 💹 Market Relevant: {market}
-📂 Category: {categories.get(category, category)}
+📂 Category: {categories.get(category, "Other")}
 📈 Sentiment: {sentiments.get(sentiment, "❔ Unclear")}
-⚡ Importance: {importance}"""
+⚡ Importance: {importance_map.get(importance, "🟢 LOW")}
+
+📝 Impact:
+{result["impact"]}"""
 
 
 # ==================================
@@ -270,10 +423,11 @@ def translate_burmese(text):
         return ""
 
     # Gemini
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=f"""
+    if client:
+        try:
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=f"""
 Translate into natural Burmese.
 
 Rules:
@@ -286,66 +440,68 @@ Rules:
 Text:
 {text}
 """
-        )
+            )
 
-        if response.text:
-            print("Translation: Gemini")
-            return response.text.strip()
+            if response.text:
+                print("Translation: Gemini")
+                return response.text.strip()
 
-    except Exception as e:
-        print("Gemini Translation Error:", e)
+        except Exception as e:
+            print("Gemini Translation Error:", e)
 
     # OpenRouter
-    try:
-        response = openrouter_client.chat.completions.create(
-            model="deepseek/deepseek-chat:free",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Translate into natural Burmese only."
-                },
-                {
-                    "role": "user",
-                    "content": text
-                }
-            ]
-        )
+    if openrouter_client:
+        try:
+            response = openrouter_client.chat.completions.create(
+                model="deepseek/deepseek-chat:free",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Translate into natural Burmese only."
+                    },
+                    {
+                        "role": "user",
+                        "content": text
+                    }
+                ]
+            )
 
-        result = response.choices[0].message.content.strip()
+            result = response.choices[0].message.content
 
-        if result:
-            print("Translation: OpenRouter")
-            return result
+            if result:
+                print("Translation: OpenRouter")
+                return result.strip()
 
-    except Exception as e:
-        print("OpenRouter Error:", e)
+        except Exception as e:
+            print("OpenRouter Error:", e)
 
     # DeepSeek
-    try:
-        response = deepseek_client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Translate into natural Burmese only."
-                },
-                {
-                    "role": "user",
-                    "content": text
-                }
-            ]
-        )
+    if deepseek_client:
+        try:
+            response = deepseek_client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Translate into natural Burmese only."
+                    },
+                    {
+                        "role": "user",
+                        "content": text
+                    }
+                ]
+            )
 
-        result = response.choices[0].message.content.strip()
+            result = response.choices[0].message.content
 
-        if result:
-            print("Translation: DeepSeek")
-            return result
+            if result:
+                print("Translation: DeepSeek")
+                return result.strip()
 
-    except Exception as e:
-        print("DeepSeek Error:", e)
+        except Exception as e:
+            print("DeepSeek Error:", e)
 
-    return text
+    return "ဘာသာပြန်ရန် ယာယီမရရှိနိုင်ပါ။"
 
 
 # ==================================
@@ -419,7 +575,7 @@ def process_news(entry, source_name, emoji):
 
     if not valid_title(title):
         print("Skipped: Invalid title")
-        return
+        return False
 
     link = getattr(entry, "link", "").strip()
 
@@ -454,119 +610,102 @@ def process_news(entry, source_name, emoji):
 
     if sent:
         print(source_name, "Sent:", link)
-    else:
-        print(source_name, "Failed to send:", link)
+        return True
+
+    print(source_name, "Failed to send:", link)
+    return False
 
 
 # ==================================
-# TRUMP TRUTH RSS
+# PROCESS RSS FEED
 # ==================================
 
-try:
+def process_feed(rss_url, last_file, source_name):
 
-    feed = feedparser.parse(RSS_URL)
+    try:
 
-    if feed.entries:
+        feed = feedparser.parse(rss_url)
+
+        if not feed.entries:
+            print(source_name, "No RSS entries")
+            return
 
         newest_link = feed.entries[0].link
-        last_id = get_last(LAST_FILE)
+        last_id = get_last(last_file)
 
-        print("Trump Latest:", newest_link)
-        print("Trump Last Saved:", last_id)
+        print(source_name, "Latest:", newest_link)
+        print(source_name, "Last Saved:", last_id)
 
         if not last_id:
 
-            save_last(LAST_FILE, newest_link)
-            print("First Trump Run")
+            save_last(last_file, newest_link)
+            print("First Run:", source_name)
+            return
 
-        elif newest_link != last_id:
+        if newest_link == last_id:
+            print("No New News:", source_name)
+            return
 
-            new_posts = []
+        new_posts = []
 
-            for entry in feed.entries:
+        for entry in feed.entries:
 
-                if entry.link == last_id:
-                    break
+            if getattr(entry, "link", "") == last_id:
+                break
 
-                new_posts.append(entry)
+            new_posts.append(entry)
 
-            new_posts.reverse()
+        new_posts.reverse()
 
-            print("Trump New Posts:", len(new_posts))
+        print(source_name, "New Posts:", len(new_posts))
 
-            for entry in new_posts:
+        all_sent = True
 
-                process_news(
-                    entry,
-                    "TRUMP TRUTH UPDATE",
-                    "🇺🇸"
-                )
+        for entry in new_posts:
 
-            save_last(LAST_FILE, newest_link)
+            sent = process_news(
+                entry,
+                source_name,
+                ""
+            )
 
-        else:
+            if not sent:
+                all_sent = False
 
-            print("No New Trump Post")
+        # Save only when all posts were successfully sent
+        if all_sent and new_posts:
+            save_last(last_file, newest_link)
+            print(source_name, "Tracking Updated")
 
-except Exception as e:
+        elif not new_posts:
+            print(source_name, "Previous post not found in RSS feed")
 
-    print("Trump RSS Error:", e)
+    except Exception as e:
+
+        print(source_name, "RSS Error:", e)
 
 
 # ==================================
-# AL JAZEERA RSS
+# MAIN
 # ==================================
 
-try:
+print("=================================")
+print("TRUMP LIVE NEWS BOT STARTING")
+print("=================================")
 
-    feed = feedparser.parse(ALJAZEERA_RSS)
+process_feed(
+    RSS_URL,
+    LAST_FILE,
+    "TRUMP TRUTH UPDATE"
+)
 
-    if feed.entries:
+process_feed(
+    ALJAZEERA_RSS,
+    ALJAZEERA_LAST_FILE,
+    "BREAKING NEWS"
+)
 
-        newest_link = feed.entries[0].link
-        last_id = get_last(ALJAZEERA_LAST_FILE)
-
-        print("AJ Latest:", newest_link)
-        print("AJ Last Saved:", last_id)
-
-        if not last_id:
-
-            save_last(ALJAZEERA_LAST_FILE, newest_link)
-            print("First Al Jazeera Run")
-
-        elif newest_link != last_id:
-
-            new_posts = []
-
-            for entry in feed.entries:
-
-                if entry.link == last_id:
-                    break
-
-                new_posts.append(entry)
-
-            new_posts.reverse()
-
-            print("Al Jazeera New Posts:", len(new_posts))
-
-            for entry in new_posts:
-
-                process_news(
-                    entry,
-                    "BREAKING NEWS",
-                    "🌍"
-                )
-
-            save_last(ALJAZEERA_LAST_FILE, newest_link)
-
-        else:
-
-            print("No New Al Jazeera News")
-
-except Exception as e:
-
-    print("Al Jazeera RSS Error:", e)
-
-
-print("Bot Finished Successfully")
-
+print("=================================")
+print("BOT FINISHED")
+print("=================================")
+            
